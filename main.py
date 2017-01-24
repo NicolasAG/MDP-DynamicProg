@@ -83,11 +83,12 @@ def iterative_policy_eval(epsilon=0.1):
     """
     delta = 0
     for s in STATES:
-        v = V[s]  # current state-value
+        v = V[s]  # old state-value
         V[s] = sum([P[s,POLICY[s],s1] * (R[s,POLICY[s],s1] + GAMMA*V[s1]) for s1 in STATES])
         delta = max(delta, abs(v-V[s]))
     if delta >= epsilon:
         iterative_policy_eval(epsilon)
+
 
 def policy_improvement():
     """
@@ -99,13 +100,45 @@ def policy_improvement():
     policy_stable = True
     for s in STATES:
         current_v = sum([P[s,POLICY[s],s1] * (R[s,POLICY[s],s1] + GAMMA*V[s1]) for s1 in STATES])
+        # Taking best action with respect to current value function V:
         for a in ACTIONS:
             temp = sum([P[s,a,s1] * (R[s,a,s1] + GAMMA*V[s1]) for s1 in STATES])
             if temp > current_v:
-                POLICY[s] = a
+                POLICY[s] = a  # update policy
                 current_v = temp
                 policy_stable = False
     return policy_stable
+
+
+def make_greedy_policy():
+    """
+    Just like policy_improvement, make policy greedy with respect to V.
+    Only difference: this is the ONLY policy update we make since we
+    assume that V ~ V*
+    """
+    policy_improvement()  # make policy greedy with respect to V~V*
+
+
+def value_iteration(epsilon=0.1, i=1):
+    """
+    Just like iterative_policy_eval(), but take the max over all ACTIONS for V(s).
+    :param epsilon: small positive number to tell when to stop iteration.
+    :param i: iteration index
+    """
+    print "Iteration:", i
+    print "V:", V
+    delta = 0
+    for s in STATES:
+        v = V[s]  # old state-value
+        # Taking best action with respect to current value function V:
+        for a in ACTIONS:
+            temp = sum([P[s,a,s1] * (R[s,a,s1] + GAMMA*V[s1]) for s1 in STATES])
+            if temp > V[s]:
+                V[s] = temp  # update value function
+        delta = max(delta, abs(v-V[s]))
+    if delta >= epsilon:
+        value_iteration(epsilon, i+1)
+
 
 def main():
     parser = argparse.ArgumentParser(description='MDP Dynamic Programming.')
@@ -118,22 +151,22 @@ def main():
 
 
     init_global_vars()
-    print "P:\n", P
-    print "R:\n", R
-    print "V:", V
-    print "POLICY:", POLICY
+    # print "P:\n", P
+    # print "R:\n", R
+    # print "V:", V
+    # print "POLICY:", POLICY
 
     if args.method == "policy_iteration":
         ###
         # POLICY ITERATION
         ###
-        iterations = 0
+        iteration = 0
         policy_stable = False
         while not policy_stable:
-            iterations += 1
+            iteration += 1
             iterative_policy_eval()
             policy_stable = policy_improvement()
-            print "Iterations:", iterations
+            print "Iteration:", iteration
             print "V:", V
             print "policy:", POLICY
 
@@ -141,8 +174,9 @@ def main():
         ###
         # VALUE ITERATION
         ###
-        # TODO
-        print "TODO"
+        value_iteration()  # compute optimal value function V*
+        make_greedy_policy()  # get optimal policy by being greedy with respect to V*
+        print "policy:", POLICY
 
     elif args.method == "prioritize_sweeping":
         ###
