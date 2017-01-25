@@ -2,17 +2,14 @@
 
 import numpy as np
 import argparse
+from datetime import datetime as dt
 
-GAMMA = 0.9  # discount factor
+GAMMA = 0.  # discount factor: to be set
 
-STATES = [  # set of all states
-     0,  1,  2,  3,  4,
-     5,  6,  7,  8,  9,
-    10, 11, 12, 13, 14,
-    15, 16, 17, 18, 19,
-    20, 21, 22, 23, 24
-]
-TERM_STATES = [6, 8, 12, 16, 18]  # terminal states
+S_WIDTH = 0  # to be set
+STATES = []  # 2D square of border S_WIDTH
+
+TERM_STATES = []  # terminal states: 4 corners (<0) + center (>0)
 
 ACTIONS = [  # set of all actions
     0,  # 0 = move RIGHT
@@ -21,58 +18,83 @@ ACTIONS = [  # set of all actions
     3   # 3 = move DOWN
 ]
 
-N_STATES = len(STATES)
-N_ACTIONS = len(ACTIONS)
-
 P = None  # transition probabilities: <state, action, state> -> 0/1
 R = None  # reward function: <state, action, state> -> 0/1
 POLICY = None  # policy: <state> -> <action>
 V = None  # <state> -> #
 
-def init_global_vars():
+def init_global_vars(gamma=0.9, s_width=5):
     """
     Initialize global variables:
-    Transition probabilities (P : <state,action,state> -> 0/1)
-    Reward function (R : <state,action,state> -> 0/-10/100)
-    Deterministic policy (POLICY : <state> -> <action>)
-    Value-function (V : <state> -> #)
+    :GAMMA: discount factor for iterative algorithms.
+    :S_WIDTH: number of states per border (try with 5, 11, 21, 31, 41)
+    :STATES: array representing a 2D square grid world (try with 25, 121, 441, 961, 1681).
+    :TERM_STATES: list of 5 terminal states (4 corners are <0 and center is >0).
+    :P: Transition probabilities <state,action,state> -> 0/1
+    :R: Reward function <state,action,state> -> 0/-10/100
+    :POLICY: Deterministic policy <state> -> <action>
+    :V: Value-function <state> -> #
     """
+    global GAMMA  # discount factor
+    GAMMA = gamma
+    global S_WIDTH  # size of the world
+    S_WIDTH = s_width
+    global STATES  # 2D square represented in a 1D array
+    STATES = range(S_WIDTH**2)
+    global TERM_STATES  # terminal states
+    TERM_STATES = [
+        S_WIDTH+1,  # top left corner
+        2*(S_WIDTH-1),  # top right corner
+        (S_WIDTH/2) * (S_WIDTH+1),  # center cell
+        S_WIDTH * (S_WIDTH-2) + 1,  # bottom left corner
+        S_WIDTH * (S_WIDTH-1) - 2  # bottom right cell
+    ]
+
+    r_border = range(S_WIDTH-1, S_WIDTH**2, S_WIDTH)  # states on the right border
+    l_border = range(0, S_WIDTH**2, S_WIDTH)  # states on the left border
+    t_border = range(S_WIDTH)  # states on the top border
+    b_border = range(S_WIDTH*(S_WIDTH-1), S_WIDTH**2)  # states at the bottom border
+
     # Deterministic environment: P(s, a, s') = 0/1
     global P
-    P = np.zeros((N_STATES, N_ACTIONS, N_STATES))  # transition probability (default is 0 for all states and all actions)
+    P = np.zeros((len(STATES), len(ACTIONS), len(STATES)))  # transition probability (default is 0 for all states and all actions)
     for s in STATES:
         if s in TERM_STATES:
-            # P[s,:,s] = 1  # whatever the action, stay in the terminal state.
-            P[s,:,:] = 0  # no transition
+            P[s,:,:] = 0  # no transitions allowed in terminal states.
         else :
             for a in ACTIONS:
-                if a == 0 and s not in [4,9,14,19,24]:
+                if a == 0 and s not in r_border:
                     # if action=RIGHT and state is not on the right-most border: valid move!
                     P[s,a,s+1] = 1.0
-                elif a == 1 and s not in [0,5,10,15,20]:
+                elif a == 1 and s not in l_border:
                     # if action=LEFT and state is not on the left-most border: valid move!
                     P[s,a,s-1] = 1.0
-                elif a == 2 and s not in [0,1,2,3,4]:
+                elif a == 2 and s not in t_border:
                     # if action=UP and state is not on the up-most border: valid move!
-                    P[s,a,s-5] = 1.0
-                elif a == 3 and s not in [20,21,22,23,24]:
+                    P[s,a,s-S_WIDTH] = 1.0
+                elif a == 3 and s not in b_border:
                     # if action=DOWN and state is not on the bottom-most border: valid move!
-                    P[s,a,s+5] = 1.0
+                    P[s,a,s+S_WIDTH] = 1.0
 
     # Rewards only at terminal states:
     global R
-    R = np.zeros((N_STATES, N_ACTIONS, N_STATES))  # rewards (default is zero for all states)
-    R[5,0,6] = R[7,1,6] = R[11,2,6] = R[1,3,6] = -10
-    R[7,0,8] = R[9,1,8] = R[13,2,8] = R[3,3,8] = -10
-    R[11,0,12] = R[13,1,12] = R[17,2,12] = R[7,3,12] = 100
-    R[15,0,16] = R[17,1,16] = R[21,2,16] = R[11,3,16] = -10
-    R[17,0,18] = R[19,1,18] = R[23,2,18] = R[13,3,18] = -10
+    R = np.zeros((len(STATES), len(ACTIONS), len(STATES)))  # rewards (default is zero for all states)
+    tl = TERM_STATES[0]  # top left corner
+    tr = TERM_STATES[1]  # top right corner
+    c = TERM_STATES[2]  # center
+    bl = TERM_STATES[3]  # bottom left corner
+    br = TERM_STATES[4]  # bottom right corner
+    R[tl-1, 0, tl] = R[tl+1, 1, tl] = R[tl+S_WIDTH, 2, tl] = R[tl-S_WIDTH, 3, tl] = -10
+    R[tr-1, 0, tr] = R[tr+1, 1, tr] = R[tr+S_WIDTH, 2, tr] = R[tr-S_WIDTH, 3, tr] = -10
+    R[c-1, 0, c] = R[c+1, 1, c] = R[c+S_WIDTH, 2, c] = R[c-S_WIDTH, 3, c] = 100
+    R[bl-1, 0, bl] = R[bl+1, 1, bl] = R[bl+S_WIDTH, 2, bl] = R[bl-S_WIDTH, 3, bl] = -10
+    R[br-1, 0, br] = R[br+1, 1, br] = R[br+S_WIDTH, 2, br] = R[br-S_WIDTH, 3, br] = -10
 
     # initialize policy and value arbitrarily
     global POLICY
-    POLICY = np.zeros(N_STATES, dtype=np.int)  # policy = move right
+    POLICY = np.zeros(len(STATES), dtype=np.int)  # policy = move right
     global V
-    V = np.zeros(N_STATES)
+    V = np.zeros(len(STATES))
 
 
 def iterative_policy_eval(epsilon=0.1):
@@ -141,21 +163,32 @@ def value_iteration(epsilon=0.1, i=1):
 
 
 def main():
+    def restricted_float(x):  # Custom type for argparse argument --gamma
+        x = float(x)
+        if x < 0.0 or x > 1.0:
+            raise argparse.ArgumentTypeError("%r not in range [0.0, 1.0]"%(x,))
+        return x
+
     parser = argparse.ArgumentParser(description='MDP Dynamic Programming.')
     parser.add_argument(
         'method',
         choices=["policy_iteration", "value_iteration", "prioritize_sweeping"],
         help="The algorithm to solve a simple grid world MDP."
     )
+    parser.add_argument(
+        '--width', type=int, default=5, choices=range(5,42,2),  # min 5x5 , max 41x41 square
+        help="The width of the 2D square grid world."
+    )
+    parser.add_argument(
+        '--gamma', type=restricted_float, default=0.9,
+        help="Discount factor for iterative algorithms."
+    )
     args = parser.parse_args()
 
 
-    init_global_vars()
-    # print "P:\n", P
-    # print "R:\n", R
-    # print "V:", V
-    # print "POLICY:", POLICY
+    init_global_vars(args.gamma, args.width)
 
+    start = dt.now()
     if args.method == "policy_iteration":
         ###
         # POLICY ITERATION
@@ -184,6 +217,8 @@ def main():
         ###
         # TODO
         print "TODO"
+
+    print "took:", dt.now() - start
 
 
 if __name__ == '__main__':
