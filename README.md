@@ -34,7 +34,7 @@ Left(0) | Right(1) | Up(2) | Down(3)
 
 `<OPTIONAL_FLAGS>` are:
  - --gamma (default 0.9, must be in (0.0, 1.0) )
- - --width (default 5, must be odd integer in (5, 61) )
+ - --width (default 5, must be odd integer in (5, 101) )
 
 `<algorithms>` are:
  - Policy Iteration algorithm: `python main.py policy_iteration <OPTIONAL_FLAGS>`

@@ -24,6 +24,7 @@ P = None  # transition probabilities: <state, action, state> -> 0/1
 R = None  # reward function: <state, action, state> -> 0/1
 POLICY = None  # policy: <state> -> <action>
 V = None  # <state> -> #
+HISTORY = []  # Array of value functions V over time
 
 P_QUEUE = []  # priority queue of states (used for prioritized sweeping)
 STATE2PRIORITY = {}  # map from a state to its priority
@@ -110,11 +111,13 @@ def iterative_policy_eval(epsilon=0.1, i=1):
     :param epsilon: small positive number to tell when to stop iteration.
     :param i: iteration index
     """
+
     print "V:", V
     print "Iteration:", i
     print "Number of Bellman updates:", i, "x", len(STATES), "=", i * len(STATES)
     delta = 0
     for s in STATES:
+        HISTORY.append(copy.deepcopy(V))  # add deep copy of current Value Function to the history
         v = V[s]  # old state-value
         V[s] = sum([P[s, POLICY[s], s1] * (R[s, POLICY[s], s1] + GAMMA*V[s1]) for s1 in STATES])
         delta = max(delta, abs(v-V[s]))
@@ -158,11 +161,13 @@ def value_iteration(epsilon=0.1, i=1):
     :param epsilon: small positive number to tell when to stop iteration.
     :param i: iteration index.
     """
+
     print "V:", V
     print "Iteration:", i
     print "Number of Bellman updates:", i, "x", len(STATES), "=", i * len(STATES)
     delta = 0
     for s in STATES:
+        HISTORY.append(copy.deepcopy(V))  # add deep copy of current Value Function to the history
         v = V[s]  # old state-value
         # Taking best action with respect to current value function V:
         for a in ACTIONS:
@@ -261,9 +266,10 @@ def prioritized_sweeping():
     # Iterate over states in the priority queue:
     iteration = 1  # iteration index
     while len(P_QUEUE) > 0:
+        HISTORY.append(copy.deepcopy(V))  # add deep copy of current Value Function to the history
         print "V:", V
         print "Iteration:", iteration
-        print "Number of Bellman updates:", iteration, "+", len(STATES), "=", iteration + len(STATES)
+        print "Number of Bellman updates:", iteration, "( +", len(STATES), ") =", iteration + len(STATES)
         # print "P_QUEUE:", P_QUEUE
         _, s = heapq.heappop(P_QUEUE)  # pop most probable state.
         del STATE2PRIORITY[s]  # forget its priority.
@@ -306,7 +312,7 @@ def main():
         help="The algorithm to solve a simple grid world MDP."
     )
     parser.add_argument(
-        '--width', type=int, default=5, choices=range(5, 62, 2),  # min 5x5 , max 61x61 square
+        '--width', type=int, default=5, choices=range(5, 102, 2),  # min 5x5 , max 101x101 square
         help="The width of the 2D square grid world."
     )
     parser.add_argument(
@@ -339,13 +345,22 @@ def main():
 
     elif args.method == "prioritized_sweeping":
         ###
-        # prioritize_sweeping
+        # PRIORITIZED SWEEPING
         ###
         prioritized_sweeping()
         make_greedy_policy()
         print "policy:", POLICY
 
     print "took:", (dt.now() - start).total_seconds(), "seconds."
+
+    # Get an idea of the convergence rate for value function V(s):
+    optimal_v = V  # V*
+    convergence = []  # array of |V* - Vi| for all Vi in HISTORY
+    for v_i in HISTORY:
+        infinity_norm = max([abs(i-j) for i, j in zip(optimal_v, v_i)])
+        convergence.append(infinity_norm)
+    print "Convergence:", convergence
+    print "len(convergence):", len(convergence)
 
 
 if __name__ == '__main__':
