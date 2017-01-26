@@ -21,9 +21,9 @@ ACTIONS = [  # set of all actions
 ]
 
 P = None  # transition probabilities: <state, action, state> -> 0/1
-R = None  # reward function: <state, action, state> -> 0/1
+R = None  # reward function: <state, action, state> -> <int>
 POLICY = None  # policy: <state> -> <action>
-V = None  # <state> -> #
+V = None  # <state> -> <float>
 HISTORY = []  # Array of value functions V over time
 
 P_QUEUE = []  # priority queue of states (used for prioritized sweeping)
