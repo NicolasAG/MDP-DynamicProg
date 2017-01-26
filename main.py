@@ -2,6 +2,8 @@
 
 import numpy as np
 import argparse
+import heapq
+import copy
 from datetime import datetime as dt
 
 GAMMA = 0.  # discount factor: to be set
@@ -23,12 +25,16 @@ R = None  # reward function: <state, action, state> -> 0/1
 POLICY = None  # policy: <state> -> <action>
 V = None  # <state> -> #
 
+P_QUEUE = []  # priority queue of states (used for prioritized sweeping)
+STATE2PRIORITY = {}  # map from a state to its priority
+
+
 def init_global_vars(gamma=0.9, s_width=5):
     """
     Initialize global variables:
     :GAMMA: discount factor for iterative algorithms.
-    :S_WIDTH: number of states per border (try with 5, 11, 21, 31, 41)
-    :STATES: array representing a 2D square grid world (try with 25, 121, 441, 961, 1681).
+    :S_WIDTH: number of states per border.
+    :STATES: array representing a 2D square grid world.
     :TERM_STATES: list of 5 terminal states (4 corners are <0 and center is >0).
     :P: Transition probabilities <state,action,state> -> 0/1
     :R: Reward function <state,action,state> -> 0/-10/100
@@ -60,21 +66,21 @@ def init_global_vars(gamma=0.9, s_width=5):
     P = np.zeros((len(STATES), len(ACTIONS), len(STATES)))  # transition probability (default is 0 for all states and all actions)
     for s in STATES:
         if s in TERM_STATES:
-            P[s,:,:] = 0  # no transitions allowed in terminal states.
-        else :
+            P[s, :, :] = 0  # no transitions allowed in terminal states.
+        else:
             for a in ACTIONS:
                 if a == 0 and s not in r_border:
                     # if action=RIGHT and state is not on the right-most border: valid move!
-                    P[s,a,s+1] = 1.0
+                    P[s, a, s+1] = 1.0
                 elif a == 1 and s not in l_border:
                     # if action=LEFT and state is not on the left-most border: valid move!
-                    P[s,a,s-1] = 1.0
+                    P[s, a, s-1] = 1.0
                 elif a == 2 and s not in t_border:
                     # if action=UP and state is not on the up-most border: valid move!
-                    P[s,a,s-S_WIDTH] = 1.0
+                    P[s, a, s-S_WIDTH] = 1.0
                 elif a == 3 and s not in b_border:
                     # if action=DOWN and state is not on the bottom-most border: valid move!
-                    P[s,a,s+S_WIDTH] = 1.0
+                    P[s, a, s+S_WIDTH] = 1.0
 
     # Rewards only at terminal states:
     global R
@@ -97,19 +103,24 @@ def init_global_vars(gamma=0.9, s_width=5):
     V = np.zeros(len(STATES))
 
 
-def iterative_policy_eval(epsilon=0.1):
+def iterative_policy_eval(epsilon=0.1, i=1):
     """
     Policy Evaluation step.
     Iterate through all states to update value function V(s) until the update becomes < epsilon.
     :param epsilon: small positive number to tell when to stop iteration.
+    :param i: iteration index
     """
+    print "V:", V
+    print "Iteration:", i
+    print "Number of Bellman updates:", i, "x", len(STATES), "=", i * len(STATES)
     delta = 0
     for s in STATES:
         v = V[s]  # old state-value
-        V[s] = sum([P[s,POLICY[s],s1] * (R[s,POLICY[s],s1] + GAMMA*V[s1]) for s1 in STATES])
+        V[s] = sum([P[s, POLICY[s], s1] * (R[s, POLICY[s], s1] + GAMMA*V[s1]) for s1 in STATES])
         delta = max(delta, abs(v-V[s]))
     if delta >= epsilon:
-        iterative_policy_eval(epsilon)
+        return iterative_policy_eval(epsilon, i+1)
+    return i
 
 
 def policy_improvement():
@@ -121,10 +132,10 @@ def policy_improvement():
     """
     policy_stable = True
     for s in STATES:
-        current_v = sum([P[s,POLICY[s],s1] * (R[s,POLICY[s],s1] + GAMMA*V[s1]) for s1 in STATES])
+        current_v = sum([P[s, POLICY[s], s1] * (R[s, POLICY[s], s1] + GAMMA*V[s1]) for s1 in STATES])
         # Taking best action with respect to current value function V:
         for a in ACTIONS:
-            temp = sum([P[s,a,s1] * (R[s,a,s1] + GAMMA*V[s1]) for s1 in STATES])
+            temp = sum([P[s, a, s1] * (R[s, a, s1] + GAMMA*V[s1]) for s1 in STATES])
             if temp > current_v:
                 POLICY[s] = a  # update policy
                 current_v = temp
@@ -145,16 +156,17 @@ def value_iteration(epsilon=0.1, i=1):
     """
     Just like iterative_policy_eval(), but take the max over all ACTIONS for V(s).
     :param epsilon: small positive number to tell when to stop iteration.
-    :param i: iteration index
+    :param i: iteration index.
     """
-    print "Iteration:", i
     print "V:", V
+    print "Iteration:", i
+    print "Number of Bellman updates:", i, "x", len(STATES), "=", i * len(STATES)
     delta = 0
     for s in STATES:
         v = V[s]  # old state-value
         # Taking best action with respect to current value function V:
         for a in ACTIONS:
-            temp = sum([P[s,a,s1] * (R[s,a,s1] + GAMMA*V[s1]) for s1 in STATES])
+            temp = sum([P[s, a, s1] * (R[s, a, s1] + GAMMA*V[s1]) for s1 in STATES])
             if temp > V[s]:
                 V[s] = temp  # update value function
         delta = max(delta, abs(v-V[s]))
@@ -162,21 +174,139 @@ def value_iteration(epsilon=0.1, i=1):
         value_iteration(epsilon, i+1)
 
 
+def neighbors(s):
+    """
+    :param s: state
+    :return: list of neighbors from state s
+    """
+    r_border = range(S_WIDTH - 1, S_WIDTH ** 2, S_WIDTH)  # states on the right border
+    l_border = range(0, S_WIDTH ** 2, S_WIDTH)  # states on the left border
+    t_border = range(S_WIDTH)  # states on the top border
+    b_border = range(S_WIDTH * (S_WIDTH - 1), S_WIDTH ** 2)  # states at the bottom border
+    # CORNERS:
+    if s == 0:  # top left corner
+        return [
+            s + 1,  # right neighbor
+            s + S_WIDTH,  # bottom neighbor
+        ]
+    elif s == S_WIDTH-1:  # top right corner
+        return [
+            s - 1,  # left neighbor
+            s + S_WIDTH,  # bottom neighbor
+        ]
+    elif s == S_WIDTH * (S_WIDTH - 1):  # bottom left corner
+        return [
+            s + 1,  # right neighbor
+            s - S_WIDTH  # top neighbor
+        ]
+    elif s == S_WIDTH * S_WIDTH - 1:  # bottom right corner
+        return [
+            s - 1,  # left neighbor
+            s - S_WIDTH  # top neighbor
+        ]
+    # BORDERS:
+    elif s in r_border:
+        return [
+            s - 1,  # left neighbor
+            s + S_WIDTH,  # bottom neighbor
+            s - S_WIDTH  # top neighbor
+        ]
+    elif s in l_border:
+        return [
+            s + 1,  # right neighbor
+            s + S_WIDTH,  # bottom neighbor
+            s - S_WIDTH  # top neighbor
+        ]
+    elif s in t_border:
+        return [
+            s - 1,  # left neighbor
+            s + 1,  # right neighbor
+            s + S_WIDTH,  # bottom neighbor
+        ]
+    elif s in b_border:
+        return [
+            s - 1,  # left neighbor
+            s + 1,  # right neighbor
+            s - S_WIDTH  # top neighbor
+        ]
+    # ALL OTHERS:
+    return [
+        s-1,  # left neighbor
+        s+1,  # right neighbor
+        s+S_WIDTH,  # bottom neighbor
+        s-S_WIDTH  # top neighbor
+    ]
+
+
+def prioritized_sweeping():
+    """
+    Just like value_iteration(), but update states by their priority.
+    Start with a priority queue in which we have states that will most change the Value function on the first sweep.
+    """
+    assert len(P_QUEUE) == len(STATE2PRIORITY) == 0
+
+    # first iteration, we don't have anything in our priority queue, add states that will change in the next sweep:
+    for s in STATES:
+        newV = copy.deepcopy(V)  # don't update V yet, this is just a simulation to decide what to add in P_QUEUE
+        for a in ACTIONS:
+            temp = sum([P[s, a, s1] * (R[s, a, s1] + GAMMA * V[s1]) for s1 in STATES])
+            if temp > newV[s]:
+                newV[s] = temp  # update fake value function
+        delta = abs(newV[s] - V[s])
+        # add states that will change a lot V in the real sweep:
+        if delta > 0:
+            heapq.heappush(P_QUEUE, (-delta, s))  # add s with priority -delta (most probable = lower value).
+            STATE2PRIORITY[s] = -delta  # keep track of its priority.
+
+    # Iterate over states in the priority queue:
+    iteration = 1  # iteration index
+    while len(P_QUEUE) > 0:
+        print "V:", V
+        print "Iteration:", iteration
+        print "Number of Bellman updates:", iteration, "+", len(STATES), "=", iteration + len(STATES)
+        # print "P_QUEUE:", P_QUEUE
+        _, s = heapq.heappop(P_QUEUE)  # pop most probable state.
+        del STATE2PRIORITY[s]  # forget its priority.
+
+        # do one Bellman Backup of current state:
+        v = V[s]  # old state-value
+        for a in ACTIONS:
+            temp = sum([P[s, a, s1] * (R[s, a, s1] + GAMMA*V[s1]) for s1 in STATES])
+            if temp > V[s]:
+                V[s] = temp  # update value function
+        delta = abs(v-V[s])
+
+        # add neighbors to the priority queue:
+        for s1 in neighbors(s):
+            new_priority = - max([delta * P[s1, a, s] for a in ACTIONS])  # how much s1 is influenced by the current change.
+            if new_priority < 0:
+                # most probable = min value between current and new priority.
+                if s1 in STATE2PRIORITY and STATE2PRIORITY[s1] > new_priority:  # update element in priority queue
+                    old_priority = STATE2PRIORITY[s1]
+                    index = P_QUEUE.index((old_priority, s1))  # current index in the priority queue.
+                    P_QUEUE[index] = (new_priority, s1)  # update current priority.
+                    STATE2PRIORITY[s1] = new_priority  # keep track of the update.
+                elif s1 not in STATE2PRIORITY:  # add new state to priority queue
+                    heapq.heappush(P_QUEUE, (new_priority, s1))  # push to priority queue.
+                    STATE2PRIORITY[s1] = new_priority  # keep track of its priority.
+        iteration += 1
+
+
 def main():
     def restricted_float(x):  # Custom type for argparse argument --gamma
         x = float(x)
         if x < 0.0 or x > 1.0:
-            raise argparse.ArgumentTypeError("%r not in range [0.0, 1.0]"%(x,))
+            raise argparse.ArgumentTypeError("%r not in range [0.0, 1.0]" % (x,))
         return x
 
     parser = argparse.ArgumentParser(description='MDP Dynamic Programming.')
     parser.add_argument(
         'method',
-        choices=["policy_iteration", "value_iteration", "prioritize_sweeping"],
+        choices=["policy_iteration", "value_iteration", "prioritized_sweeping"],
         help="The algorithm to solve a simple grid world MDP."
     )
     parser.add_argument(
-        '--width', type=int, default=5, choices=range(5,42,2),  # min 5x5 , max 41x41 square
+        '--width', type=int, default=5, choices=range(5, 62, 2),  # min 5x5 , max 61x61 square
         help="The width of the 2D square grid world."
     )
     parser.add_argument(
@@ -185,7 +315,6 @@ def main():
     )
     args = parser.parse_args()
 
-
     init_global_vars(args.gamma, args.width)
 
     start = dt.now()
@@ -193,14 +322,11 @@ def main():
         ###
         # POLICY ITERATION
         ###
-        iteration = 0
+        i = 0
         policy_stable = False
         while not policy_stable:
-            iteration += 1
-            iterative_policy_eval()
+            i = iterative_policy_eval(epsilon=0.1, i=i+1)
             policy_stable = policy_improvement()
-            print "Iteration:", iteration
-            print "V:", V
             print "policy:", POLICY
 
     elif args.method == "value_iteration":
@@ -211,16 +337,16 @@ def main():
         make_greedy_policy()  # get optimal policy by being greedy with respect to V*
         print "policy:", POLICY
 
-    elif args.method == "prioritize_sweeping":
+    elif args.method == "prioritized_sweeping":
         ###
         # prioritize_sweeping
         ###
-        # TODO
-        print "TODO"
+        prioritized_sweeping()
+        make_greedy_policy()
+        print "policy:", POLICY
 
-    print "took:", dt.now() - start
+    print "took:", (dt.now() - start).total_seconds(), "seconds."
 
 
 if __name__ == '__main__':
     main()
-

@@ -34,9 +34,9 @@ Left(0) | Right(1) | Up(2) | Down(3)
 
 `<OPTIONAL_FLAGS>` are:
  - --gamma (default 0.9, must be in (0.0, 1.0) )
- - --width (default 5, must be odd integer in (5, 41) )
+ - --width (default 5, must be odd integer in (5, 61) )
 
 `<algorithms>` are:
  - Policy Iteration algorithm: `python main.py policy_iteration <OPTIONAL_FLAGS>`
  - Value Iteration algorithm: `python main.py value_iteration <OPTIONAL_FLAGS>`
- - Prioritize Sweeping algorithm: `python main.py prioritize_sweeping <OPTIONAL_FLAGS>`
+ - Prioritized Sweeping algorithm: `python main.py prioritized_sweeping <OPTIONAL_FLAGS>`
