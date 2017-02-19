@@ -1,6 +1,6 @@
 # MDP-DynamicProg
 
-Dynamic Programs for simple grid world MDP control.
+Policy Iteration, Value Iteration and Prioritized Sweeping for simple grid world MDP control.
 
 ## Grid World:
 
